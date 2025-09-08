@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Игра: Распределение электронов в атомах — Финал v3</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;background:#f6f8fb;color:#0b2450;margin:0;padding:18px}
+  .wrap{max-width:960px;margin:0 auto}
+  .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 8px 24px rgba(2,6,23,.06);margin-bottom:12px}
+  h1{margin:0 0 6px;font-size:20px}
+  .row{display:flex;gap:8px;align-items:center}
+  input[type=text]{flex:1;padding:10px;border-radius:8px;border:1px solid #e6eef8}
+  button{padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:700}
+  .btn-primary{background:#2563eb;color:#fff}
+  .small{font-size:13px;color:#6b7280}
+  .timer{font-weight:800;color:#0b3a8a}
+  .question{margin:12px 0;font-size:18px}
+  .opts{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  button.opt{padding:10px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;text-align:left}
+  svg{display:block;margin:8px 0}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{border:1px solid #eef2fb;padding:8px;text-align:left}
+  th{background:#f3f6fb}
+  .answers{margin-top:12px;padding:12px;border-radius:8px;background:#f9fafb;border:1px solid #e6eef8}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Игра: Распределение электронов в атомах</h1>
+    <div class="row" style="margin-top:8px">
+      <input id="studentName" type="text" placeholder="Фамилия Имя">
+      <button id="startBtn" class="btn-primary" onclick="startGame()">Начать</button>
+      <button id="teacherBtn" style="margin-left:8px" onclick="openTeacher()">Учительский вход</button>
+    </div>
+    <div style="margin-top:8px" class="row">
+      <div class="small">Осталось: <span id="timer" class="timer">10:00</span></div>
+      <div style="margin-left:auto" class="small">Максимум: 10 баллов</div>
+    </div>
+    <div style="margin-top:8px" class="small">Если свернёте вкладку — тест завершится. PIN для учителя: 1990.</div>
+  </div>
+
+  <div id="gameCard" class="card hidden">
+    <div id="qIndex" class="small"></div>
+    <div id="qText" class="question"></div>
+    <div id="diagramArea"></div>
+    <div id="options" class="opts"></div>
+  </div>
+
+  <div id="resultCard" class="card hidden">
+    <h2>Результат</h2>
+    <div id="resultText" style="font-weight:700"></div>
+    <div id="answersBlock" class="answers hidden"></div>
+    <div style="margin-top:10px"><button class="btn btn-primary" onclick="restart()">Пройти ещё раз (если разрешено)</button></div>
+  </div>
+
+  <div id="teacherPanelCard" class="card hidden">
+    <div class="row">
+      <h2 style="margin:0">Таблица результатов (режим учителя)</h2>
+      <div style="margin-left:auto" class="row">
+        <button class="btn" onclick="downloadCSV()">Скачать CSV</button>
+        <button class="btn" onclick="clearResults()">Очистить результаты</button>
+        <button class="btn" onclick="closeTeacher()">Закрыть</button>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <table id="leaderTable"><thead><tr><th>ФИО</th><th>Балл</th><th>Вариант</th><th>Время окончания</th><th>Затраченное время</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const TEACHER_PIN="1990";
+const STORAGE_KEY="electrons_game_final_results_v3";
+const ATTEMPT_KEY="electrons_game_final_attempted_v3";
+const TIME_LIMIT=10*60;
+let studentName="",currentVariant=null,questions=[],idx=0,correctCount=0,timerId=null,remaining=TIME_LIMIT,elapsed=0;
+let answersLog=[];
+
+const ELEMENTS={Li:{shells:[2,1]},H:{shells:[1]},C:{shells:[2,4]},N:{shells:[2,5]},Na:{shells:[2,8,1]},Mg:{shells:[2,8,2]},Ar:{shells:[2,8,8]},K:{shells:[2,8,8,1]},Be:{shells:[2,2]},Ni:{shells:[2,8,18]},Zn:{shells:[2,8,18,2]}}
+
+const VARIANTS={
+1:[
+{type:"yn",q:"На первом энергетическом уровне может быть максимум 2 электрона.",a:true},
+{type:"yn",q:"На втором энергетическом уровне максимально может быть 8 электронов.",a:true},
+{type:"yn",q:"Порядковый номер элемента равен числу протонов (и электронов в нейтральном атоме).",a:true},
+{type:"yn",q:"Протоны и нейтроны находятся в ядре, электроны — в оболочке.",a:true},
+{type:"mcq",q:"Mg (Z=12, A≈24): выберите правильное число частиц.",options:["p=12,e=12,n=12","p=12,e=12,n=13","p=24,e=12,n=12"],correct:0},
+{type:"mcq",q:"Na (Z=11, A≈23): выберите правильное число частиц.",options:["p=11,e=11,n=12","p=11,e=10,n=12","p=23,e=11,n=11"],correct:0},
+{type:"mcq",q:"F (Z=9, A≈19): выберите правильное число частиц.",options:["p=9,e=9,n=10","p=9,e=10,n=9","p=19,e=9,n=9"],correct:0},
+{type:"bohr",q:"Определите элемент по диаграмме Бора.",element:"Li",options:["Водород","Литий","Углерод"],correct:1},
+{type:"bohr",q:"Определите элемент (1 ур=2e, 2 ур=8e, 3 ур=18e).",element:"Zn",options:["Никель","Медь","Цинк"],correct:2},
+{type:"yn",q:"Чтобы найти число нейтронов, нужно вычесть число протонов из массового числа.",a:false}
+],
+2:[
+{type:"yn",q:"У атома водорода только 1 электрон.",a:true},
+{type:"yn",q:"У атома гелия (Z=2) внешних электронов 2.",a:true},
+{type:"yn",q:"Номер группы показывает число электронов на внешнем уровне (для главных подгрупп).",a:true},
+{type:"yn",q:"Протоны положительные, электроны отрицательные, нейтроны нейтральные.",a:true},
+{type:"yn",q:"Протон имеет заряд «-1», нейтрон «+1», электрон «0».",a:false},
+{type:"bohr",q:"Определите элемент по диаграмме Бора.",element:"N",options:["Натрий","Магний","Азот"],correct:2},
+{type:"yn",q:"Электроны сначала заполняют s-орбитали, а потом p-орбитали.",a:true},
+{type:"yn",q:"У аргона оболочка полностью заполнена.",a:true},
+{type:"yn",q:"Чтобы найти число нейтронов: A – Z.",a:true},
+{type:"yn",q:"Атом нейтрален, если число протонов = числу электронов.",a:true}
+],
+3:[
+{type:"yn",q:"На втором энергетическом уровне максимально может быть 8 электронов.",a:true},
+{type:"yn",q:"Максимальное число электронов на третьем уровне — 18.",a:true},
+{type:"yn",q:"Физический смысл: номер группы = число электронов на внешнем уровне; порядковый номер = число протонов; номер периода = число энергетических уровней.",a:true},
+{type:"yn",q:"Протоны отрицательные, электроны положительные, нейтроны нейтральные.",a:false},
+{type:"yn",q:"Протон имеет заряд «0», нейтрон «+1», электрон «-1».",a:false},
+{type:"yn",q:"У серы (Z=16) внешних электронов 6.",a:true},
+{type:"yn",q:"У неона (Z=10) оболочка полностью заполнена.",a:true},
+{type:"bohr",q:"Определите элемент по диаграмме Бора.",element:"Ar",options:["Калий","Бериллий","Аргон"],correct:2},
+{type:"yn",q:"Электроны сначала заполняют p-орбитали, затем s-орбитали.",a:false},
+{type:"yn",q:"На втором энергетическом уровне есть s- и p-орбитали.",a:true}
+]
+}
+
+function shuffle(a){return a.sort(()=>Math.random()-0.5)}
+function formatTime(sec){const m=Math.floor(sec/60);const s=sec%60;return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
+function nowStr(){return new Date().toLocaleString()}
+
+function createBohrSVG(shells){
+const xmlns="http://www.w3.org/2000/svg";
+const svg=document.createElementNS(xmlns,"svg");svg.setAttribute("width","220");svg.setAttribute("height","220");svg.setAttribute("viewBox","0 0 220 220");
+const cx=110,cy=110;
+const nuc=document.createElementNS(xmlns,"circle");nuc.setAttribute("cx",cx);nuc.setAttribute("cy",cy);nuc.setAttribute("r",10);nuc.setAttribute("fill","black");svg.appendChild(nuc);
+const gap=30;
+for(let i=0;i<shells.length;i++){const r=30+i*gap;const circ=document.createElementNS(xmlns,"circle");circ.setAttribute("cx",cx);circ.setAttribute("cy",cy);circ.setAttribute("r",r);circ.setAttribute("stroke","#333");circ.setAttribute("fill","none");svg.appendChild(circ);const n=shells[i];for(let k=0;k<n;k++){const ang=2*Math.PI*k/n-Math.PI/2;const x=cx+r*Math.cos(ang),y=cy+r*Math.sin(ang);const e=document.createElementNS(xmlns,"circle");e.setAttribute("cx",x);e.setAttribute("cy",y);e.setAttribute("r",5);e.setAttribute("fill","red");svg.appendChild(e);}}return svg;}
+
+function startGame(){
+if(localStorage.getItem(ATTEMPT_KEY)){alert("С этого устройства уже была попытка.");return;}
+studentName=document.getElementById("studentName").value.trim();
+if(!studentName){alert("Введите ФИО");return;}
+localStorage.setItem(ATTEMPT_KEY,"1");
+const keys=Object.keys(VARIANTS);currentVariant=Number(keys[Math.floor(Math.random()*keys.length)]);
+questions=shuffle([...VARIANTS[currentVariant]]);idx=0;correctCount=0;answersLog=[];
+document.getElementById("gameCard").classList.remove("hidden");
+remaining=TIME_LIMIT;elapsed=0;document.getElementById("timer").textContent=formatTime(remaining);
+timerId=setInterval(()=>{remaining--;elapsed++;document.getElementById("timer").textContent=formatTime(remaining);if(remaining<=0)finishGame("Время вышло.");},1000);
+document.addEventListener("visibilitychange",()=>{if(document.hidden)finishGame("Покинули вкладку.")});
+showQuestion();
+}
+
+function showQuestion(){
+if(idx>=questions.length){finishGame();return;}
+const q=questions[idx];
+document.getElementById("qIndex").textContent=`Вопрос ${idx+1} из ${questions.length}`;
+document.getElementById("qText").textContent=q.q;
+document.getElementById("diagramArea").innerHTML="";
+const opts=document.getElementById("options");opts.innerHTML="";
+if(q.type==="yn"){
+["Правильно","Неправильно"].forEach(val=>{const b=document.createElement("button");b.className="opt";b.textContent=val;b.onclick=()=>handleAnswer(q,val,(val==="Правильно")===q.a);opts.appendChild(b);});
+}else if(q.type==="mcq"){
+q.options.forEach((opt,i)=>{const b=document.createElement("button");b.className="opt";b.textContent=opt;b.onclick=()=>handleAnswer(q,opt,i===q.correct);opts.appendChild(b);});
+}else if(q.type==="bohr"){
+const el=ELEMENTS[q.element]||{shells:[1]};
+document.getElementById("diagramArea").appendChild(createBohrSVG(el.shells));
+const caption=document.createElement("div");caption.className="small";caption.textContent="Красные точки — электроны.";document.getElementById("diagramArea").appendChild(caption);
+q.options.forEach((opt,i)=>{const b=document.createElement("button");b.className="opt";b.textContent=opt;b.onclick=()=>handleAnswer(q,opt,i===q.correct);opts.appendChild(b);});
+}
+}
+
+function handleAnswer(q,studentAns,isCorrect){
+let correctText="";if(q.type==="yn")correctText=q.a?"Правильно":"Неправильно";else correctText=q.options[q.correct];
+answersLog.push({q:q.q,correct:correctText,student:studentAns});
+if(isCorrect)correctCount++;idx++;showQuestion();
+}
+
+function finishGame(reason=""){
+clearInterval(timerId);document.getElementById("gameCard").classList.add("hidden");
+const total=questions.length;const score=((correctCount/total)*10).toFixed(1);const spent=formatTime(elapsed);
+const arr=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");
+arr.push({name:studentName,score:score,variant:currentVariant,time:nowStr(),spent:spent});
+localStorage.setItem(STORAGE_KEY,JSON.stringify(arr));
+document.getElementById("resultCard").classList.remove("hidden");
+document.getElementById("resultText").innerText=`${studentName}, ваш результат: ${score}/10. ${reason}`;
+let html="<h3>Правильные ответы:</h3><ol>";answersLog.forEach(a=>{html+=`<li><b>${a.q}</b><br>Правильный ответ: ${a.correct}<br>Ваш ответ: ${a.student}</li>`});html+="</ol>";
+document.getElementById("answersBlock").innerHTML=html;document.getElementById("answersBlock").classList.remove("hidden");
+}
+
+function openTeacher(){const pin=prompt("PIN:");if(pin===TEACHER_PIN){renderTable();document.getElementById("teacherPanelCard").classList.remove("hidden");}}
+function closeTeacher(){document.getElementById("teacherPanelCard").classList.add("hidden");}
+function renderTable(){const tbody=document.querySelector("#leaderTable tbody");tbody.innerHTML="";const rows=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");rows.forEach(r=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${r.name}</td><td>${r.score}</td><td>${r.variant}</td><td>${r.time}</td><td>${r.spent}</td>`;tbody.appendChild(tr);});}
+function downloadCSV(){const rows=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");let csv="ФИО,Балл,Вариант,Время окончания,Затраченное время\n";rows.forEach(r=>{csv+=`${r.name},${r.score},${r.variant},${r.time},${r.spent}\n`});const blob=new Blob([csv],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="results.csv";a.click();}
+function clearResults(){if(confirm("Очистить все результаты?")){localStorage.removeItem(STORAGE_KEY);renderTable();}}
+function restart(){location.reload();}
+</script>
+</body>
+</html>
